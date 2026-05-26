@@ -1,0 +1,13 @@
+# oppo-webserver 依赖
+requests>=2.28
+playwright>=1.40
+pandas>=2.0
+pypinyin>=0.50
+jieba>=0.42
+python-dotenv>=1.0
+flask>=3.0
+apscheduler>=3.10
+openpyxl>=3.1
+urllib3>=2.0
+httpx>=0.25
+playwright-stealth>=2.0

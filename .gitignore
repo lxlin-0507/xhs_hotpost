@@ -1,0 +1,66 @@
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# ── 虚拟环境 ──────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── 环境配置（含密码/密钥等敏感信息）─────────────────────
+.env
+.env.dev
+.env.prod
+.env.local
+
+# ── SSH/SFTP 密钥 ────────────────────────────────────────
+id_ed25519
+id_rsa
+*.pem
+
+# ── 爬虫输出数据 ─────────────────────────────────────────
+output/
+
+# ── SFTP 拉下来的原始热词数据 ────────────────────────────
+pipeline/hotword_data/
+
+# ── 远端热词本地镜像（数据目录，不入库）────────────────────
+_remote_hotword/
+
+# ── 登录态（含 cookie 等敏感信息）────────────────────────
+auth_state.json
+xhs_auth_state.json
+
+# ── 持久化浏览器 profile（含 cookies / 设备指纹）─────────
+browser_profile/
+
+# ── 搜狗词库临时文件 ─────────────────────────────────────
+*.scel
+
+# ── 日志 ─────────────────────────────────────────────────
+logs/
+*.log
+sync.log
+
+# ── IDE / 编辑器 ─────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Playwright ───────────────────────────────────────────
+playwright-report/
+test-results/
+
+server_deploy.sh
+hotwords_service/hanlp/
