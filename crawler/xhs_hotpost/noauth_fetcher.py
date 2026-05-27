@@ -367,6 +367,22 @@ async def fetch_noauth_feed_and_comments(
                 interact = note.get("interact_info") or {}
                 user = note.get("user") or {}
                 def sv(v): return str(v) if v is not None else "0"
+                # XHS detail API 里 tag_list 可能是：
+                #   [{"id":"...","name":"百合花","type":"topic"}, ...]
+                # 只保留 type 为 "topic" 的项，提取 name
+                raw_tags = note.get("tag_list") or note.get("tagList") or []
+                tag_names: list[str] = []
+                if isinstance(raw_tags, list):
+                    for t in raw_tags:
+                        if isinstance(t, dict):
+                            ttype = (t.get("type") or "").lower()
+                            name = (t.get("name") or "").strip()
+                            if name and (not ttype or ttype in ("topic", "interact_topic", "buyable")):
+                                tag_names.append(name)
+                        elif isinstance(t, str):
+                            name = t.strip()
+                            if name:
+                                tag_names.append(name)
                 return {
                     "title":           str(note.get("title") or note.get("display_title") or ""),
                     "desc":            str(note.get("desc") or ""),
@@ -377,6 +393,7 @@ async def fetch_noauth_feed_and_comments(
                     "nickname":        str(user.get("nickname") or ""),
                     "ip_location":     str(note.get("ip_location") or note.get("ipLocation") or ""),
                     "time":            note.get("time") or 0,
+                    "tag_list":        tag_names,
                 }
             except Exception:
                 return None
@@ -472,6 +489,24 @@ async def fetch_noauth_feed_and_comments(
                             const user = note.user || {};
                             const liked = interact.likedCount || interact.liked_count;
                             if (!liked) return null;   // 空状态，放弃
+                            // 提取 tag_list
+                            const rawTags = note.tagList || note.tag_list || [];
+                            const tagNames = [];
+                            if (Array.isArray(rawTags)) {
+                                rawTags.forEach(t => {
+                                    if (!t) return;
+                                    if (typeof t === 'string') {
+                                        const s = t.trim();
+                                        if (s) tagNames.push(s);
+                                    } else if (typeof t === 'object') {
+                                        const tp = (t.type || '').toLowerCase();
+                                        const nm = (t.name || '').trim();
+                                        if (nm && (!tp || tp === 'topic' || tp === 'interact_topic' || tp === 'buyable')) {
+                                            tagNames.push(nm);
+                                        }
+                                    }
+                                });
+                            }
                             return {
                                 title: safe(note.title || note.displayTitle || ''),
                                 desc: safe(note.desc || ''),
@@ -482,6 +517,7 @@ async def fetch_noauth_feed_and_comments(
                                 nickname: safe(user.nickname || user.nickName || ''),
                                 ip_location: safe(note.ipLocation || note.ip_location || ''),
                                 time: note.time || 0,
+                                tag_list: tagNames,
                             };
                         } catch(e) { return null; }
                     }""")
@@ -506,10 +542,22 @@ async def fetch_noauth_feed_and_comments(
                     share_html  = _g(r'"shareCount"\s*:\s*"([^"]*)"') or _g(r'"share_count"\s*:\s*"([^"]*)"')
                     nick_html   = _g(r'"nickname"\s*:\s*"([^"]*)"')
                     title_html  = _g(r'"title"\s*:\s*"([^"]*)"', "")
+                    desc_html   = _g(r'"desc"\s*:\s*"([^"]*)"', "")
+                    # 从 HTML 里抽 tag_list 的 name 字段
+                    tag_html: list[str] = []
+                    for m_tag in re.finditer(
+                        r'"tag_list"\s*:\s*\[(.*?)\]', html, re.DOTALL
+                    ):
+                        block = m_tag.group(1)
+                        for nm in re.findall(r'"name"\s*:\s*"([^"]+)"', block):
+                            nm = nm.strip()
+                            if nm and nm not in tag_html:
+                                tag_html.append(nm)
+                        break  # 只取第一个 tag_list
                     if liked_html and liked_html != "0":
                         meta = {
                             "title":           title_html or title,
-                            "desc":            "",
+                            "desc":            desc_html,
                             "liked_count":     liked_html,
                             "collected_count": coll_html,
                             "comment_count":   cmt_html,
@@ -517,6 +565,7 @@ async def fetch_noauth_feed_and_comments(
                             "nickname":        nick_html,
                             "ip_location":     "",
                             "time":            0,
+                            "tag_list":        tag_html,
                         }
                         logger.debug(f"[html_regex] liked={liked_html} collected={coll_html} for {note_id}")
                     else:
@@ -574,6 +623,21 @@ def _append_result(
 ) -> None:
     """把一条 feed + 原始评论组装成 spider 期望的 note dict（不含 comments 格式化）。"""
     m = meta or {}
+    # tag_list 从 meta 多路抽取合并：structured + desc 里的后缀式话题正则
+    tags: List[str] = []
+    raw_tags = m.get("tag_list")
+    if isinstance(raw_tags, list):
+        for t in raw_tags:
+            if isinstance(t, str):
+                t = t.strip()
+                if t and t not in tags:
+                    tags.append(t)
+    # desc 里 “#XX[话题]#” 格式作为补充
+    desc_text = m.get("desc") or ""
+    for nm in re.findall(r"#([^#\n]+?)\[话题\]#", desc_text):
+        nm = nm.strip()
+        if nm and nm not in tags:
+            tags.append(nm)
     results.append({
         "note_id":         note_id,
         "title":           m.get("title") or title,
@@ -585,7 +649,7 @@ def _append_result(
         "comment_count":   str(_to_int(m.get("comment_count"))),
         "share_count":     str(_to_int(m.get("share_count"))),
         "ip_location":     m.get("ip_location", ""),
-        "tag_list":        "",
+        "tag_list":        tags,
         "note_url":        (
             f"https://www.xiaohongshu.com/explore/{note_id}"
             f"?xsec_token={quote(xsec_token, safe='')}&xsec_source=pc_feed"

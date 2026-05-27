@@ -34,7 +34,7 @@
           {"tags": ["不限"], "type": "filter_pos_distance"},
       ],
       "geo": "",
-      "image_formats": ["jpg", "webp", "avif"],
+      "image_formats":   ["jpg", "webp", "avif"],
   }
   ```
 

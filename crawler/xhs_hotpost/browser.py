@@ -910,7 +910,12 @@ class XhsBrowser:
         if self._ctx is None or self._page is None:
             return []
 
-        _TRENDING_PATH = "/api/sns/web/v1/search/querytrending"
+        # XHS 2026 起接口路径改名：querytrending -> trending/query；
+        # 保留两个 path 兼容历史。
+        _TRENDING_PATHS = (
+            "/api/sns/web/v1/search/trending/query",
+            "/api/sns/web/v1/search/querytrending",
+        )
         captured: List[Optional[Dict]] = [None]
         done = asyncio.Event()
 
@@ -925,45 +930,89 @@ class XhsBrowser:
             await route.fulfill(response=resp)
             done.set()
 
-        # 只拦截 querytrending 接口
-        pattern = f"**{_TRENDING_PATH}**"
-        await self._ctx.route(pattern, handle_route)
+        # 拦截 trending 接口（新老两个 path）
+        patterns = [f"**{p}**" for p in _TRENDING_PATHS]
+        for p in patterns:
+            await self._ctx.route(p, handle_route)
 
         try:
-            # 导航到首页（已加载时跳过，节省时间）
-            current_url = self._page.url or ""
-            if "xiaohongshu.com" not in current_url:
-                await self._page.goto(XHS_HOME, wait_until="domcontentloaded", timeout=20000)
-                await asyncio.sleep(random.uniform(1.0, 2.0))
-
-            # 点击搜索框触发 querytrending
-            search_selectors = [
-                "#search-input",
-                'input.search-input',
-                'input[placeholder*="搜索"]',
-                'input[placeholder*="探索"]',
-                'input[placeholder*="Search"]',
-                '.search-input',
-                '[class*="search"] input',
-            ]
-            clicked = False
-            for sel in search_selectors:
-                try:
-                    await self._page.click(sel, timeout=2000)
-                    clicked = True
-                    break
-                except Exception:
-                    continue
-
-            if not clicked:
-                logger.warning("fetch_hot_keywords: 未找到搜索框，无法触发 querytrending")
-                return []
-
-            # 等待拦截完成（最多 8 秒）
+            # 强制重新打开首页（不复用既有上下文）：SPA 启动期会自动发 trending/query，
+            # 我们已在前面 ctx.route 注册了拦截器，能直接拿到响应而不依赖任何 click。
             try:
-                await asyncio.wait_for(done.wait(), timeout=8.0)
+                await self._page.goto(XHS_HOME, wait_until="domcontentloaded", timeout=20000)
+            except Exception as e:
+                logger.warning(f"fetch_hot_keywords: 重新打开首页失败 {e}")
+            try:
+                await asyncio.wait_for(done.wait(), timeout=6.0)
             except asyncio.TimeoutError:
-                logger.warning("fetch_hot_keywords: 等待 querytrending 响应超时")
+                pass
+
+            # 如果上一步已捕获，直接出循环走解析
+            if not done.is_set():
+                # 点击搜索框触发 trending/query
+                # 新版 XHS 用 <div> 模拟输入框，不再是真正的 <input>，
+                # 故需要同时支持 div 容器选择器（按从精确到宽泛排序）。
+                search_selectors = [
+                    "#search-input",
+                    "#search-input-in-feeds",
+                    ".search-area-in-header",
+                    ".input-box.search-box-in-content",
+                    ".wendian-wrapper.search-input",
+                    'input.search-input',
+                    'input[placeholder*="搜索"]',
+                    'input[placeholder*="探索"]',
+                    'input[placeholder*="Search"]',
+                    '.search-input',
+                    '[class*="search"] input',
+                ]
+                clicked = False
+                for sel in search_selectors:
+                    try:
+                        await self._page.click(sel, timeout=2000)
+                        clicked = True
+                        logger.info(f"fetch_hot_keywords: 点击搜索框成功 selector={sel}")
+                        break
+                    except Exception:
+                        continue
+
+                if not clicked:
+                    logger.warning("fetch_hot_keywords: 未找到搜索框，无法触发 trending 接口")
+                    return []
+
+                # 等待拦截完成（最多 8 秒）
+                try:
+                    await asyncio.wait_for(done.wait(), timeout=8.0)
+                except asyncio.TimeoutError:
+                    # 兜底：再向搜索框容器内的子元素 dispatch click
+                    try:
+                        await self._page.evaluate(
+                            """
+                            () => {
+                                const sels = ['#search-input-in-feeds', '#search-input', '.search-area-in-header'];
+                                for (const s of sels) {
+                                    const el = document.querySelector(s);
+                                    if (!el) continue;
+                                    if (typeof el.click === 'function') el.click();
+                                    Array.from(el.querySelectorAll('*')).forEach(c => {
+                                        try { if (typeof c.click === 'function') c.click(); } catch (e) {}
+                                    });
+                                }
+                            }
+                            """
+                        )
+                    except Exception:
+                        pass
+                    # 真人式输入字符 + 退格
+                    try:
+                        await self._page.keyboard.type("a", delay=120)
+                        await asyncio.sleep(0.4)
+                        await self._page.keyboard.press("Backspace")
+                    except Exception:
+                        pass
+                    try:
+                        await asyncio.wait_for(done.wait(), timeout=6.0)
+                    except asyncio.TimeoutError:
+                        logger.warning("fetch_hot_keywords: 等待 trending 响应超时")
 
             # 按 Escape 关闭搜索框，恢复正常浏览状态
             try:
@@ -972,11 +1021,15 @@ class XhsBrowser:
                 pass
 
         finally:
-            await self._ctx.unroute(pattern, handle_route)
+            for p in patterns:
+                try:
+                    await self._ctx.unroute(p, handle_route)
+                except Exception:
+                    pass
 
         data = captured[0]
         if data is None:
-            logger.warning("fetch_hot_keywords: 未捕获到 querytrending 响应")
+            logger.warning("fetch_hot_keywords: 未捕获到 trending 响应")
             return []
 
         code = data.get("code", -1)
