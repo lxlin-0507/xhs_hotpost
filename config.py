@@ -106,6 +106,18 @@ class Config:
     # 每个关键词处理完后的基准休眠秒数（实际含随机抖动，建议 ≥ 5s）
     XHS_HOTPOST_SLEEP_SEC = float(os.getenv("XHS_HOTPOST_SLEEP_SEC", "5.0"))
 
+    # ── 小红书热点代理（多 Profile 无登录聚合，Phase 2）─────────
+    XHS_TREND_PROXY_SAVE_DIR = _abs(
+        os.getenv("XHS_TREND_PROXY_SAVE_DIR", os.path.join("output", "xhs_trend_proxy"))
+    )
+    XHS_TREND_PROXY_PROFILE_ROOT = _abs(
+        os.getenv("XHS_TREND_PROXY_PROFILE_ROOT", "browser_profile")
+    )
+    XHS_TREND_PROXY_PROFILE_COUNT = int(os.getenv("XHS_TREND_PROXY_PROFILE_COUNT", "3"))
+    XHS_TREND_PROXY_NOTES_PER_PROFILE = int(os.getenv("XHS_TREND_PROXY_NOTES_PER_PROFILE", "25"))
+    XHS_TREND_PROXY_MIN_EVIDENCE = int(os.getenv("XHS_TREND_PROXY_MIN_EVIDENCE", "2"))
+    XHS_TREND_PROXY_HEADLESS = os.getenv("XHS_TREND_PROXY_HEADLESS", "true").lower() not in ("0", "false", "no")
+
     # ── SFTP 同步（推送到 SFTP 服务器供第三方拉取）───────────
     SFTP_HOST = os.getenv("SFTP_HOST", "")
     SFTP_USER = os.getenv("SFTP_USER", "")

@@ -54,7 +54,7 @@ def main() -> str:
 
     started = datetime.now()
     day = started.strftime("%Y%m%d")
-    slot = started.strftime("%H%M")
+    slot = started.strftime("%H%M%S")
 
     out_dir = Path(args.output_dir) / day
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -83,21 +83,34 @@ def main() -> str:
 
     scorer = XhsTopicScorer(limit=args.limit)
     rows = scorer.score(notes)
-    if not rows:
-        raise RuntimeError("no topics extracted from sampled notes")
-
     txt_path = out_dir / f"xhs_topic_trend_{day}_{slot}.txt"
     with open(txt_path, "w", encoding="utf-8") as f:
-        f.write(rows_to_tsv(rows))
+        if rows:
+            f.write(rows_to_tsv(rows))
+        else:
+            f.write(
+                "# 本轮采样未抽取到任何完整 #话题#\n"
+                f"# sample_notes={len(notes)}\n"
+                "# 常见原因: 风控拦截详情页 -> tag_list/desc 全空\n"
+                "# 处理建议: 1) 加 --headed 手动滚一两屏让指纹老化\n"
+                "#           2) 或 rm -rf browser_profile/xhs_noauth 重置后过几分钟再跑\n"
+            )
 
     hot_count = sum(1 for r in rows if r.is_hot)
-    logger.info(
-        "话题热点推断完成: %s  sample_notes=%s topics=%s hot=%s",
-        txt_path,
-        len(notes),
-        len(rows),
-        hot_count,
-    )
+    if not rows:
+        logger.warning(
+            "话题热点推断: 本轮未抽到任何 #话题#（sample_notes=%s），已写占位文件: %s",
+            len(notes),
+            txt_path,
+        )
+    else:
+        logger.info(
+            "话题热点推断完成: %s  sample_notes=%s topics=%s hot=%s",
+            txt_path,
+            len(notes),
+            len(rows),
+            hot_count,
+        )
     return str(txt_path)
 
 
